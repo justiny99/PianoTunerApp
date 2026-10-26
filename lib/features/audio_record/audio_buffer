@@ -1,0 +1,57 @@
+import 'dart:typed_data';
+
+class OverlappingAudioBuffer {
+  final int frameSize;    // Target window size (e.g., 4096)
+  final int hopSize;      // How many new samples to wait for before processing (e.g., 1024 for 75% overlap)
+  
+  late final Float64List _buffer;
+  int _writeIndex = 0;
+  int _samplesAccumulatedSinceLastFrame = 0;
+  bool _isBufferPrimed = false;
+
+  OverlappingAudioBuffer({
+    required this.frameSize,
+    required double overlapPercentage, // e.g., 0.75 for 75%
+  }) : hopSize = (frameSize * (1.0 - overlapPercentage)).round() {
+    _buffer = Float64List(frameSize);
+  }
+
+  /// Ingests a small chunk of audio from the live microphone stream.
+  /// When enough new data arrives to fulfill the hop size, it triggers [onFrameReady].
+  void write(Float32List liveChunk, Function(Float64List) onFrameReady) {
+    for (int i = 0; i < liveChunk.length; i++) {
+      // Write sample into our circular ring structure
+      _buffer[_writeIndex] = liveChunk[i].toDouble();
+      _writeIndex = (_writeIndex + 1) % frameSize;
+
+      _samplesAccumulatedSinceLastFrame++;
+
+      // Once the buffer fills completely for the first time, mark it primed
+      if (!_isBufferPrimed && _samplesAccumulatedSinceLastFrame >= frameSize) {
+        _isBufferPrimed = true;
+        _samplesAccumulatedSinceLastFrame = hopSize; // Reset to match the next hop target
+        onFrameReady(_extractCurrentFrame());
+      } 
+      // If primed, yield a new frame every time we accumulate a 'hopSize' worth of samples
+      else if (_isBufferPrimed && _samplesAccumulatedSinceLastFrame >= hopSize) {
+        _samplesAccumulatedSinceLastFrame = 0;
+        onFrameReady(_extractCurrentFrame());
+      }
+    }
+  }
+
+  /// Extracts a contiguous, chronologically ordered block of [frameSize] samples
+  /// out of the circular buffer.
+  Float64List _extractCurrentFrame() {
+    final Float64List frame = Float64List(frameSize);
+    
+    // The oldest sample in the current window sits right at the current writeIndex position
+    int readIndex = _writeIndex; 
+    for (int i = 0; i < frameSize; i++) {
+      frame[i] = _buffer[readIndex];
+      readIndex = (readIndex + 1) % frameSize;
+    }
+    
+    return frame;
+  }
+}
