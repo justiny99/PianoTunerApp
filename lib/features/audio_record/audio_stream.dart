@@ -23,12 +23,13 @@ class AudioStream {
     );
 
     final rawStream = await _record.startStream(config);
-
     final controller = StreamController<List<int>>();
 
     _subscription = rawStream.listen(
       (Uint8List chunk) {
-        _buffer.addAll(chunk);
+        final int16Data = Int16List.view(chunk.buffer);
+
+        _buffer.addAll(int16Data);
 
         // Process data into rolling windows
         while (_buffer.length >= _windowSize) {
@@ -50,7 +51,7 @@ class AudioStream {
     await _subscription?.cancel();
     _subscription = null;
     await _record.stop();
-    await _record.dispose();
     _buffer.clear();
+    _record.dispose();
   }
 }
